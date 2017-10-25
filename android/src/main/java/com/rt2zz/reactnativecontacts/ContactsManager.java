@@ -263,7 +263,6 @@ public class ContactsManager extends ReactContextBaseJavaModule {
         Context ctx = getReactApplicationContext();
         try {
             ContentResolver cr = ctx.getContentResolver();
-            cr.applyBatch(ContactsContract.AUTHORITY, ops);
             ContentProviderResult[] result = cr.applyBatch(ContactsContract.AUTHORITY, ops);
 
             if (result != null && result.length > 0) {
@@ -413,7 +412,6 @@ public class ContactsManager extends ReactContextBaseJavaModule {
         Context ctx = getReactApplicationContext();
         try {
             ContentResolver cr = ctx.getContentResolver();
-            cr.applyBatch(ContactsContract.AUTHORITY, ops);
             ContentProviderResult[] result = cr.applyBatch(ContactsContract.AUTHORITY, ops);
 
             if (result != null && result.length > 0) {
