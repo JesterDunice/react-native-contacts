@@ -4,12 +4,19 @@ import android.content.ContentProviderOperation;
 import android.content.ContentResolver;
 import android.content.Context;
 import android.content.pm.PackageManager;
+import android.content.ContentProviderResult;
+import android.content.ContentUris;
 import android.os.AsyncTask;
 import android.provider.ContactsContract;
 import android.provider.ContactsContract.CommonDataKinds;
 import android.provider.ContactsContract.CommonDataKinds.Organization;
 import android.provider.ContactsContract.CommonDataKinds.StructuredName;
 import android.provider.ContactsContract.RawContacts;
+
+import java.io.InputStream;
+import java.io.IOException;
+import java.io.ByteArrayOutputStream;
+import android.net.Uri;
 
 import com.facebook.react.bridge.Callback;
 import com.facebook.react.bridge.ReactApplicationContext;
@@ -18,6 +25,8 @@ import com.facebook.react.bridge.ReactMethod;
 import com.facebook.react.bridge.ReadableArray;
 import com.facebook.react.bridge.ReadableMap;
 import com.facebook.react.bridge.WritableArray;
+import com.facebook.react.bridge.WritableMap;
+import android.util.Log;
 
 import java.util.ArrayList;
 
@@ -127,6 +136,7 @@ public class ContactsManager extends ReactContextBaseJavaModule {
         String company = contact.hasKey("company") ? contact.getString("company") : null;
         String jobTitle = contact.hasKey("jobTitle") ? contact.getString("jobTitle") : null;
         String department = contact.hasKey("department") ? contact.getString("department") : null;
+        String thumbnailPath = contact.hasKey("thumbnailPath") ? contact.getString("thumbnailPath") : null;
 
         // String name = givenName;
         // name += middleName != "" ? " " + middleName : "";
@@ -188,6 +198,28 @@ public class ContactsManager extends ReactContextBaseJavaModule {
                 .withValue(Organization.DEPARTMENT, department);
         ops.add(op.build());
 
+        try {
+            if (thumbnailPath != null && !thumbnailPath.isEmpty()) {
+
+                Uri myUri = Uri.parse(thumbnailPath);
+                ContentResolver cr = getReactApplicationContext().getContentResolver();
+
+                InputStream iStream =    cr.openInputStream(myUri);
+                byte[] inputData = getBytes(iStream);
+
+                op = ContentProviderOperation.newInsert(ContactsContract.Data.CONTENT_URI)
+                        .withValueBackReference(ContactsContract.Data.RAW_CONTACT_ID, 0)
+                        .withValue(ContactsContract.Data.IS_SUPER_PRIMARY, 1)
+                        .withValue(ContactsContract.Data.MIMETYPE, CommonDataKinds.Photo.CONTENT_ITEM_TYPE)
+                        .withValue(CommonDataKinds.Photo.PHOTO, inputData);
+                ops.add(op.build());
+
+            }
+
+        } catch (Exception e) {
+            Log.e(e.toString(), "thumbnail:error");
+        }
+
         //TODO not sure where to allow yields
         op.withYieldAllowed(true);
 
@@ -232,10 +264,32 @@ public class ContactsManager extends ReactContextBaseJavaModule {
         try {
             ContentResolver cr = ctx.getContentResolver();
             cr.applyBatch(ContactsContract.AUTHORITY, ops);
-            callback.invoke(); // success
+            ContentProviderResult[] result = cr.applyBatch(ContactsContract.AUTHORITY, ops);
+
+            if (result != null && result.length > 0) {
+
+                String rawId = String.valueOf(ContentUris.parseId(result[0].uri));
+
+                ContactsProvider contactsProvider = new ContactsProvider(cr);
+                WritableMap newlyAddedContact = contactsProvider.getContactByRawId(rawId);
+
+                callback.invoke(null, newlyAddedContact); // success
+            }
         } catch (Exception e) {
             callback.invoke(e.toString());
         }
+    }
+
+    public byte[] getBytes(InputStream inputStream) throws IOException {
+        ByteArrayOutputStream byteBuffer = new ByteArrayOutputStream();
+        int bufferSize = 1024;
+        byte[] buffer = new byte[bufferSize];
+
+        int len = 0;
+        while ((len = inputStream.read(buffer)) != -1) {
+            byteBuffer.write(buffer, 0, len);
+        }
+        return byteBuffer.toByteArray();
     }
 
     /*
@@ -254,6 +308,7 @@ public class ContactsManager extends ReactContextBaseJavaModule {
         String company = contact.hasKey("company") ? contact.getString("company") : null;
         String jobTitle = contact.hasKey("jobTitle") ? contact.getString("jobTitle") : null;
         String department = contact.hasKey("department") ? contact.getString("department") : null;
+        String thumbnailPath = contact.hasKey("thumbnailPath") ? contact.getString("thumbnailPath") : null;
 
         ReadableArray phoneNumbers = contact.hasKey("phoneNumbers") ? contact.getArray("phoneNumbers") : null;
         int numOfPhones = 0;
@@ -333,13 +388,69 @@ public class ContactsManager extends ReactContextBaseJavaModule {
             ops.add(op.build());
         }
 
+        try {
+            if (thumbnailPath != null && !thumbnailPath.isEmpty()) {
+
+                Uri myUri = Uri.parse(thumbnailPath);
+                ContentResolver cr = getReactApplicationContext().getContentResolver();
+
+                InputStream iStream =    cr.openInputStream(myUri);
+                byte[] inputData = getBytes(iStream);
+
+                op = ContentProviderOperation.newInsert(ContactsContract.Data.CONTENT_URI)
+                        .withValueBackReference(ContactsContract.Data.RAW_CONTACT_ID, 0)
+                        .withValue(ContactsContract.Data.IS_SUPER_PRIMARY, 1)
+                        .withValue(ContactsContract.Data.MIMETYPE, CommonDataKinds.Photo.CONTENT_ITEM_TYPE)
+                        .withValue(CommonDataKinds.Photo.PHOTO, inputData);
+                ops.add(op.build());
+
+            }
+
+        } catch (Exception e) {
+            Log.e(e.toString(), "thumbnail:error");
+        }
+
         Context ctx = getReactApplicationContext();
         try {
             ContentResolver cr = ctx.getContentResolver();
             cr.applyBatch(ContactsContract.AUTHORITY, ops);
-            callback.invoke(); // success
+            ContentProviderResult[] result = cr.applyBatch(ContactsContract.AUTHORITY, ops);
+
+            if (result != null && result.length > 0) {
+
+                ContactsProvider contactsProvider = new ContactsProvider(cr);
+                WritableMap updatedContact = contactsProvider.getContactById(recordID);
+
+                callback.invoke(null, updatedContact); // success
+            }
         } catch (Exception e) {
             callback.invoke(e.toString());
+        }
+    }
+
+    /*
+    * Delete contact from phone's addressbook
+    */
+
+    @ReactMethod
+    public void deleteContact(ReadableMap contact, Callback callback) {
+
+        String recordID = contact.hasKey("recordID") ? contact.getString("recordID") : null;
+
+        try {
+            Context ctx = getReactApplicationContext();
+
+            Uri uri = Uri.withAppendedPath(ContactsContract.Contacts.CONTENT_URI, recordID);
+            ContentResolver cr = ctx.getContentResolver();
+            int deleted = cr.delete(uri, null, null);
+
+            if (deleted > 0)
+                callback.invoke(null, recordID); // success
+            else
+                callback.invoke(null, null); // something was wrong
+
+        } catch (Exception e) {
+            callback.invoke(e.toString(), null);
         }
     }
 
